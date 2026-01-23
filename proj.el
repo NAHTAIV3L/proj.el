@@ -30,14 +30,15 @@
          "\n" t)))
             proj-locations))))
 
-(defun proj-goto-dir (dir)
+(defun proj-set-dir (dir &optional quiet)
   (interactive "D")
-  (setq proj-current (file-truename (concat dir "/"))))
+  (setq proj-current (file-truename (concat dir "/")))
+  (unless quiet (dired proj-current)))
 
-(defun proj-swap (&optional dir quiet)
+(defun proj-swap (&optional dir)
   (interactive)
   (if dir
-      (proj-goto-dir dir)
+      (proj-set-dir dir)
     (let* ((completion-extra-properties '(:category file))
            (choice
             (completing-read
@@ -48,13 +49,12 @@
              (append (proj--get-paths) '("Some other directory"))
              nil t nil nil proj-current)))
       (if (equal choice "Some other directory")
-          (call-interactively 'proj-goto-dir)
-        (proj-goto-dir choice))))
-  (unless quiet (dired proj-current)))
+          (call-interactively 'proj-set-dir)
+        (proj-set-dir choice)))))
 
 (defun proj-find-file (&optional filename)
   (interactive)
-  (unless proj-current (proj-swap nil t))
+  (unless proj-current (proj-swap))
   (when filename (find-file filename))
   (let ((completion-extra-properties '(:category file))
         (default-directory proj-current))
@@ -127,6 +127,7 @@
   (let ((map (make-sparse-keymap)))
     (define-key map "f" 'proj-find-file)
     (define-key map "b" 'proj-switch-to-buffer)
+    (define-key map "s" 'proj-set-dir)
     (define-key map "p" 'proj-swap)
     (define-key map "d" 'proj-dired)
     (define-key map "c" 'proj-compile)
