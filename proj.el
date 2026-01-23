@@ -117,6 +117,12 @@
   (unless proj-current (proj-swap))
   (kill-new proj-current))
 
+(defun proj-execute ()
+  (interactive)
+  (unless proj-current (proj-swap))
+  (let ((default-directory proj-current))
+	(execute-extended-command nil)))
+
 (defvar proj-prefix-map
   (let ((map (make-sparse-keymap)))
     (define-key map "f" 'proj-find-file)
@@ -126,6 +132,7 @@
     (define-key map "c" 'proj-compile)
     (define-key map "g" 'proj-grep)
     (define-key map "y" 'proj-copy-root-dir)
+    (define-key map "x" 'proj-execute)
     map))
 
 (define-key ctl-x-map "p" proj-prefix-map)
