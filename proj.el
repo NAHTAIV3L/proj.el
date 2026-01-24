@@ -68,6 +68,7 @@
 
 (defun proj-switch-to-buffer (&optional buffer-or-name)
   (interactive)
+  (unless proj-current (proj-swap))
   (switch-to-buffer
    (or buffer-or-name
        (let* ((other-buffer (other-buffer (current-buffer)))
@@ -123,6 +124,12 @@
   (let ((default-directory proj-current))
 	(execute-extended-command nil)))
 
+(defun proj-shell-command ()
+  (interactive)
+  (unless proj-current (proj-swap))
+  (let ((default-directory proj-current))
+	(call-interactively 'shell-command)))
+
 (defvar proj-prefix-map
   (let ((map (make-sparse-keymap)))
     (define-key map "f" 'proj-find-file)
@@ -134,6 +141,7 @@
     (define-key map "g" 'proj-grep)
     (define-key map "y" 'proj-copy-root-dir)
     (define-key map "x" 'proj-execute)
+    (define-key map (kbd "M-!") 'proj-shell-command)
     map))
 
 (define-key ctl-x-map "p" proj-prefix-map)
