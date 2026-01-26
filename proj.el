@@ -17,8 +17,14 @@
 
 (defmacro proj--clean-path (path) `(string-replace (getenv "HOME") "~" ,path))
 
+(defun proj--current-compilation-buffer (_)
+  (concat "*" (file-name-nondirectory (directory-file-name proj-current)) ": compilation*"))
+
 (defun proj--get-buffer-path (buffer)
-  (or (with-current-buffer buffer dired-directory) (buffer-file-name buffer)))
+  (if (or (string-search "magit" (buffer-name buffer))
+          (string-search "compilation" (buffer-name buffer)))
+      (with-current-buffer buffer default-directory)
+    (or (with-current-buffer buffer dired-directory) (buffer-file-name buffer))))
 
 (defun proj--get-paths ()
   (delete proj-current
@@ -100,9 +106,7 @@
   (let* ((found (seq-find (lambda (f) (equal (car f) proj-current)) proj-compile-commands))
          (command (cdr (or found '("default" . "make -k"))))
          (default-directory proj-current)
-         (compilation-buffer-name-function
-          (lambda (f)
-            (concat "*" (file-name-nondirectory (directory-file-name proj-current)) ": compilation*"))))
+         (compilation-buffer-name-function 'proj--current-compilation-buffer))
     (setq compile-command command)
     (call-interactively 'compile)
     (unless (equal compile-command command)
