@@ -1,3 +1,6 @@
+(require 'cl-lib)
+(require 'seq)
+
 (defvar proj-locations
   '("~/dev" "~/latex" "~/rpi")
   "Value for where to look for projects")
@@ -58,8 +61,8 @@
           (call-interactively 'proj-set-dir)
         (proj-set-dir choice)))))
 
-(defun proj-find-file (&optional filename)
-  (interactive)
+(cl-defun proj-find-file (&optional filename &key all)
+  (interactive (list nil :all current-prefix-arg))
   (unless proj-current (proj-swap))
   (when filename (find-file filename))
   (let ((completion-extra-properties '(:category file))
@@ -69,7 +72,7 @@
       (concat "Find file in " (proj--clean-path proj-current) ": ")
       (mapcar (lambda (str) (string-replace proj-current "" str))
               (split-string (shell-command-to-string
-                             (concat "find " proj-current " -path '*/.git' -prune -o -type f -print"))
+                             (concat "find " proj-current (unless all " -path '*/.*' -prune -o") " -path '*/.git' -prune -o -type f -print"))
                             "\n" t))))))
 
 (defun proj-switch-to-buffer (&optional buffer-or-name)
