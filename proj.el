@@ -75,7 +75,13 @@
       (concat "Find file in " (proj--clean-path proj-current) ": ")
       (mapcar (lambda (str) (string-replace proj-current "" str))
               (split-string (shell-command-to-string
-                             (concat "find " proj-current (unless all " -path '*/.*' -prune -o") " -path '*/.git' -prune -o -type f -print"))
+                             (concat "find " proj-current (unless all
+                                                            (concat " -path '"
+                                                                    (substring proj-current
+                                                                               0
+                                                                               (1- (length proj-current)))
+                                                                    "*/.*' -prune -o"))
+                                     " -path '*/.git' -prune -o -type f -print"))
                             "\n" t))))))
 
 (defun proj-switch-to-buffer (&optional buffer-or-name)
@@ -166,6 +172,12 @@
   (let ((default-directory proj-current))
 	(call-interactively 'shell-command)))
 
+(defun proj-async-shell-command ()
+  (interactive)
+  (unless proj-current (proj-swap))
+  (let ((default-directory proj-current))
+	(call-interactively 'async-shell-command)))
+
 (defvar proj-prefix-map
   (let ((map (make-sparse-keymap)))
     (define-key map "f" 'proj-find-file)
@@ -179,7 +191,8 @@
     (define-key map "g" 'proj-grep)
     (define-key map "y" 'proj-copy-root-dir)
     (define-key map "x" 'proj-execute)
-    (define-key map (kbd "M-!") 'proj-shell-command)
+    (define-key map "!" 'proj-shell-command)
+    (define-key map "&" 'proj-async-shell-command)
     map))
 
 (define-key ctl-x-map "p" proj-prefix-map)
