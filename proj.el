@@ -16,12 +16,12 @@
   "What function to run for proj-grep")
 
 (defvar proj-compile-commands '()
-  "Current project root")
+  "Compile commands for each project")
+
+(defvar proj-compilation-directories '()
+  "Compilation directories for each project")
 
 (defmacro proj--clean-path (path) `(string-replace (getenv "HOME") "~" ,path))
-
-(defun proj--current-compilation-buffer (_)
-  (concat "*" (file-name-nondirectory (directory-file-name proj-current)) ": compilation*"))
 
 (defun proj--get-buffer-path (buffer)
   (if (or (string-search "magit" (buffer-name buffer))
@@ -42,7 +42,10 @@
 (defun proj-set-dir (dir &optional quiet)
   (interactive "D")
   (setq proj-current (file-truename (concat dir "/")))
-  (unless quiet (dired proj-current)))
+  (unless quiet (dired proj-current))
+  ;; set compilation command and directory when we switch
+  (setq compile-command (alist-get proj-current proj-compile-commands "make -k" nil #'equal))
+  (setq compilation-directory (alist-get proj-current proj-compilation-directories proj-current nil #'equal)))
 
 (defun proj-swap (&optional dir)
   (interactive)
@@ -106,19 +109,24 @@
 (defun proj-compile ()
   (interactive)
   (unless proj-current (proj-swap))
-  (let* ((found (seq-find (lambda (f) (equal (car f) proj-current)) proj-compile-commands))
-         (command (cdr (or found '("default" . "make -k"))))
-         (default-directory proj-current)
-         (compilation-buffer-name-function 'proj--current-compilation-buffer))
-    (setq compile-command command)
-    (call-interactively 'compile)
-    (unless (equal compile-command command)
-      (if found
-          (setq proj-compile-commands
-                (mapcar
-                 (lambda (d) (if (equal (car d) proj-current) (cons proj-current compile-command) d))
-                 proj-compile-commands))
-        (add-to-list 'proj-compile-commands (cons proj-current compile-command))))))
+  (let ((default-directory proj-current))
+    (call-interactively 'compile)))
+
+(defun proj-compile-action (_)
+  "grab compilation command and directory whenever we compile"
+  (when proj-current
+	(progn
+	  (setf (alist-get proj-current proj-compile-commands nil nil #'equal) 
+			compile-command)
+	  (setf (alist-get proj-current proj-compilation-directories nil nil #'equal) 
+			compilation-directory))))
+(add-hook 'compilation-start-hook 'proj-compile-action)
+
+(defun proj--compilation-buffer-name-function (mode)
+  (if proj-current
+      (concat "*" (file-name-nondirectory (directory-file-name proj-current)) ": compilation*")
+    (concat "*" (downcase mode) "*")))
+(setq compilation-buffer-name-function 'proj--compilation-buffer-name-function)
 
 (defun proj-copy-root-dir ()
   (interactive)
