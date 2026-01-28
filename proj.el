@@ -94,6 +94,22 @@
             other-name)
           nil pred)))))
 
+(defun proj-kill-buffer (&optional buffer-or-name)
+  (interactive)
+  (unless proj-current (proj-swap))
+  (kill-buffer
+   (or buffer-or-name
+       (let* ((other-buffer (other-buffer (current-buffer)))
+              (other-name (buffer-name other-buffer))
+              (pred (lambda (b)
+                      (let ((path (proj--get-buffer-path (cdr b))))
+                        (when path (file-in-directory-p (file-truename path) proj-current))))))
+         (read-buffer
+          (concat "Kill buffer in " (proj--clean-path proj-current) ": ")
+          (when (funcall pred (cons other-name other-buffer))
+            other-name)
+          nil pred)))))
+
 (defun proj-dired ()
   (interactive)
   (if proj-current
@@ -112,13 +128,18 @@
   (let ((default-directory proj-current))
     (call-interactively 'compile)))
 
+(defun proj-recompile ()
+  (unless proj-current (proj-swap))
+  (let ((default-directory proj-current))
+    (call-interactively 'recompile)))
+
 (defun proj-compile-action (_)
   "grab compilation command and directory whenever we compile"
   (when proj-current
 	(progn
-	  (setf (alist-get proj-current proj-compile-commands nil nil #'equal) 
+	  (setf (alist-get proj-current proj-compile-commands nil nil #'equal)
 			compile-command)
-	  (setf (alist-get proj-current proj-compilation-directories nil nil #'equal) 
+	  (setf (alist-get proj-current proj-compilation-directories nil nil #'equal)
 			compilation-directory))))
 (add-hook 'compilation-start-hook 'proj-compile-action)
 
@@ -149,10 +170,12 @@
   (let ((map (make-sparse-keymap)))
     (define-key map "f" 'proj-find-file)
     (define-key map "b" 'proj-switch-to-buffer)
+    (define-key map "k" 'proj-kill-buffer)
     (define-key map "s" 'proj-set-dir)
     (define-key map "p" 'proj-swap)
     (define-key map "d" 'proj-dired)
     (define-key map "c" 'proj-compile)
+    (define-key map "r" 'proj-recompile)
     (define-key map "g" 'proj-grep)
     (define-key map "y" 'proj-copy-root-dir)
     (define-key map "x" 'proj-execute)
