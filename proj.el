@@ -1,5 +1,4 @@
 (require 'cl-lib)
-(require 'seq)
 
 (defvar proj-locations
   '("~/dev" "~/latex" "~/rpi")
@@ -105,15 +104,16 @@
   (unless proj-current (proj-swap))
   (kill-buffer
    (or buffer-or-name
-       (let* ((other-buffer (other-buffer (current-buffer)))
-              (other-name (buffer-name other-buffer))
+       (let* ((buffer (current-buffer))
+              (buffer-name (buffer-name buffer))
               (pred (lambda (b)
-                      (let ((path (proj--get-buffer-path (cdr b))))
-                        (when path (file-in-directory-p (file-truename path) proj-current))))))
+                      (if (eq (cdr b) buffer) t
+                        (let ((path (proj--get-buffer-path (cdr b))))
+                          (when path (file-in-directory-p (file-truename path) proj-current)))))))
          (read-buffer
           (concat "Kill buffer in " (proj--clean-path proj-current) ": ")
-          (when (funcall pred (cons other-name other-buffer))
-            other-name)
+          (when (funcall pred (cons buffer-name buffer))
+            buffer-name)
           nil pred)))))
 
 (defun proj-dired ()
