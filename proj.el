@@ -14,6 +14,9 @@
 (defvar proj-current nil
   "Current project root")
 
+(defvar proj-previously-opened '()
+  "List of projects that have been previously opened")
+
 ;; per project state
 (defvar proj-compile-commands '()
   "Compile commands for each project")
@@ -45,43 +48,44 @@
 (defun proj-set (dir &optional quiet)
   (interactive (list (read-directory-name "Set project directory: " 
                                           default-directory)))
+  (if (and (not (eq proj-current nil)) (file-equal-p dir proj-current))
+	  (message "Project is already open")
+	
+	;; assign new current project
+	(add-to-list 'proj-previously-opened dir 'nil 'file-equal-p)
+	(setq proj-current (file-truename (concat dir "/")))
 
-  ;; assign new current project
-  (setq proj-current (file-truename (concat dir "/")))
+	;; set compilation command and directory when we switch
+	(setq compile-command (alist-get proj-current proj-compile-commands "make -k" nil #'equal))
+	(setq compilation-directory (alist-get proj-current proj-compilation-directories proj-current nil #'equal))
 
-  ;; set compilation command and directory when we switch
-  (setq compile-command (alist-get proj-current proj-compile-commands "make -k" nil #'equal))
-  (setq compilation-directory (alist-get proj-current proj-compilation-directories proj-current nil #'equal))
-
-  ;; restore window configuration or open dired
-  (let ((new-window-conf (alist-get proj-current proj-window-configurations nil nil #'equal)))
-	(if new-window-conf
+	;; restore window configuration or open dired
+	(let ((new-window-conf (alist-get proj-current proj-window-configurations nil nil #'equal)))
+	  (if new-window-conf
+		  (progn
+			(set-window-configuration new-window-conf)
+			(other-window 1)
+			)
 		(progn
-		  (set-window-configuration new-window-conf)
-		  (other-window 1)
-		  )
-	  (progn
-		(unless quiet (dired proj-current))
-		(delete-other-windows)
-		)))
-  )
+		  (unless quiet (dired proj-current))
+		  (delete-other-windows)
+		  )))
+	))
 
-(defun proj-swap-to (&optional dir)
+(defun proj-swap-to ()
   (interactive)
-  (if dir
-      (proj-set dir)
-    (let* ((completion-extra-properties '(:category file))
-           (choice
-            (completing-read
-             (concat "Switch to project"
-                     (when proj-current
-                       (concat " (" (proj--clean-path proj-current) ")"))
-                     ": ")
-             (append (proj--get-paths) '("Some other directory"))
-             nil t nil nil proj-current)))
-      (if (equal choice "Some other directory")
-          (call-interactively 'proj-set)
-        (proj-set choice)))))
+  (let* ((completion-extra-properties '(:category file))
+		 (choice
+		  (completing-read
+		   (concat "Switch to project"
+				   (when proj-current
+					 (concat " (" (proj--clean-path proj-current) ")"))
+				   ": ")
+		   (append (proj--get-paths) '("Some other directory") proj-previously-opened)
+		   nil t nil nil proj-current)))
+	(if (equal choice "Some other directory")
+		(call-interactively 'proj-set)
+	  (proj-set choice))))
 
 (cl-defun proj-find-file (&optional filename &key all)
   (interactive (list nil :all current-prefix-arg))
