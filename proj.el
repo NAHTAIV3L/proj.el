@@ -44,15 +44,27 @@
 
 (defun proj-set (dir &optional quiet)
   (interactive (list (read-directory-name "Set project directory: " 
-                                          proj-current)))
+                                          default-directory)))
 
   ;; assign new current project
   (setq proj-current (file-truename (concat dir "/")))
-  (unless quiet (dired proj-current))
 
   ;; set compilation command and directory when we switch
   (setq compile-command (alist-get proj-current proj-compile-commands "make -k" nil #'equal))
-  (setq compilation-directory (alist-get proj-current proj-compilation-directories proj-current nil #'equal)))
+  (setq compilation-directory (alist-get proj-current proj-compilation-directories proj-current nil #'equal))
+
+  ;; restore window configuration or open dired
+  (let ((new-window-conf (alist-get proj-current proj-window-configurations nil nil #'equal)))
+	(if new-window-conf
+		(progn
+		  (set-window-configuration new-window-conf)
+		  (other-window 1)
+		  )
+	  (progn
+		(unless quiet (dired proj-current))
+		(delete-other-windows)
+		)))
+  )
 
 (defun proj-swap-to (&optional dir)
   (interactive)
@@ -162,6 +174,11 @@
       (concat "*" (file-name-nondirectory (directory-file-name proj-current)) ": compilation*")
     (concat "*" (downcase mode) "*")))
 (setq compilation-buffer-name-function 'proj--compilation-buffer-name-function)
+
+;; window configuration hook
+(defun proj--window-configuration-changed-action ()
+  (setf (alist-get proj-current proj-window-configurations nil nil #'equal) (current-window-configuration)))
+(add-hook `window-configuration-change-hook 'proj--window-configuration-changed-action)
 
 (defun proj-copy-root-dir ()
   (interactive)
