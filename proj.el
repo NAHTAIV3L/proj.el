@@ -8,17 +8,21 @@
   '("-mindepth 2" "-maxdepth 2" "-path '*/.git'" "-prune -o" "-type d" "-print")
   "parameters to run find with")
 
-(defvar proj-current nil
-  "Current project root")
-
 (defvar proj-grep-function #'grep
   "What function to run for proj-grep")
 
+(defvar proj-current nil
+  "Current project root")
+
+;; per project state
 (defvar proj-compile-commands '()
   "Compile commands for each project")
 
 (defvar proj-compilation-directories '()
   "Compilation directories for each project")
+
+(defvar proj-window-configurations '()
+  "Window configuration for each project")
 
 (defmacro proj--clean-path (path) `(string-replace (getenv "HOME") "~" ,path))
 
@@ -38,18 +42,22 @@
          "\n" t)))
             proj-locations))))
 
-(defun proj-set-dir (dir &optional quiet)
-  (interactive "D")
+(defun proj-set (dir &optional quiet)
+  (interactive (list (read-directory-name "Set project directory: " 
+                                          proj-current)))
+
+  ;; assign new current project
   (setq proj-current (file-truename (concat dir "/")))
   (unless quiet (dired proj-current))
+
   ;; set compilation command and directory when we switch
   (setq compile-command (alist-get proj-current proj-compile-commands "make -k" nil #'equal))
   (setq compilation-directory (alist-get proj-current proj-compilation-directories proj-current nil #'equal)))
 
-(defun proj-swap (&optional dir)
+(defun proj-swap-to (&optional dir)
   (interactive)
   (if dir
-      (proj-set-dir dir)
+      (proj-set dir)
     (let* ((completion-extra-properties '(:category file))
            (choice
             (completing-read
@@ -60,12 +68,12 @@
              (append (proj--get-paths) '("Some other directory"))
              nil t nil nil proj-current)))
       (if (equal choice "Some other directory")
-          (call-interactively 'proj-set-dir)
-        (proj-set-dir choice)))))
+          (call-interactively 'proj-set)
+        (proj-set choice)))))
 
 (cl-defun proj-find-file (&optional filename &key all)
   (interactive (list nil :all current-prefix-arg))
-  (unless proj-current (proj-swap))
+  (unless proj-current (proj-swap-to))
   (when filename (find-file filename))
   (let ((completion-extra-properties '(:category file))
         (default-directory proj-current))
@@ -85,7 +93,7 @@
 
 (defun proj-switch-to-buffer (&optional buffer-or-name)
   (interactive)
-  (unless proj-current (proj-swap))
+  (unless proj-current (proj-swap-to))
   (switch-to-buffer
    (or buffer-or-name
        (let* ((other-buffer (other-buffer (current-buffer)))
@@ -101,7 +109,7 @@
 
 (defun proj-kill-buffer (&optional buffer-or-name)
   (interactive)
-  (unless proj-current (proj-swap))
+  (unless proj-current (proj-swap-to))
   (kill-buffer
    (or buffer-or-name
        (let* ((buffer (current-buffer))
@@ -120,22 +128,22 @@
   (interactive)
   (if proj-current
       (dired proj-current)
-    (proj-swap)))
+    (proj-swap-to)))
 
 (defun proj-grep ()
   (interactive)
-  (unless proj-current (proj-swap))
+  (unless proj-current (proj-swap-to))
   (let ((default-directory proj-current))
     (when proj-grep-function (call-interactively proj-grep-function))))
 
 (defun proj-compile ()
   (interactive)
-  (unless proj-current (proj-swap))
+  (unless proj-current (proj-swap-to))
   (let ((default-directory proj-current))
     (call-interactively 'compile)))
 
 (defun proj-recompile ()
-  (unless proj-current (proj-swap))
+  (unless proj-current (proj-swap-to))
   (let ((default-directory proj-current))
     (call-interactively 'recompile)))
 
@@ -157,24 +165,24 @@
 
 (defun proj-copy-root-dir ()
   (interactive)
-  (unless proj-current (proj-swap))
+  (unless proj-current (proj-swap-to))
   (kill-new proj-current))
 
 (defun proj-execute ()
   (interactive)
-  (unless proj-current (proj-swap))
+  (unless proj-current (proj-swap-to))
   (let ((default-directory proj-current))
 	(execute-extended-command nil)))
 
 (defun proj-shell-command ()
   (interactive)
-  (unless proj-current (proj-swap))
+  (unless proj-current (proj-swap-to))
   (let ((default-directory proj-current))
 	(call-interactively 'shell-command)))
 
 (defun proj-async-shell-command ()
   (interactive)
-  (unless proj-current (proj-swap))
+  (unless proj-current (proj-swap-to))
   (let ((default-directory proj-current))
 	(call-interactively 'async-shell-command)))
 
@@ -183,8 +191,8 @@
     (define-key map "f" 'proj-find-file)
     (define-key map "b" 'proj-switch-to-buffer)
     (define-key map "k" 'proj-kill-buffer)
-    (define-key map "s" 'proj-set-dir)
-    (define-key map "p" 'proj-swap)
+    (define-key map "s" 'proj-set)
+    (define-key map "p" 'proj-swap-to)
     (define-key map "d" 'proj-dired)
     (define-key map "c" 'proj-compile)
     (define-key map "r" 'proj-recompile)
