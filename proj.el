@@ -199,7 +199,8 @@
 (defun proj-copy-root-dir ()
   (interactive)
   (unless proj-current (proj-swap-to))
-  (kill-new proj-current))
+  (kill-new proj-current)
+  (gui-set-selection nil proj-current))
 
 (defun proj-execute ()
   (interactive)
