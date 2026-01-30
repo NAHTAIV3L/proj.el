@@ -87,8 +87,8 @@
 		(call-interactively 'proj-set)
 	  (proj-set choice))))
 
-(cl-defun proj-find-file (&optional filename &key all)
-  (interactive (list nil :all current-prefix-arg))
+(defun proj-find-file (&optional filename)
+  (interactive)
   (unless proj-current (proj-swap-to))
   (when filename (find-file filename))
   (let ((completion-extra-properties '(:category file))
@@ -98,13 +98,25 @@
       (concat "Find file in " (proj--clean-path proj-current) ": ")
       (mapcar (lambda (str) (string-replace proj-current "" str))
               (split-string (shell-command-to-string
-                             (concat "find " proj-current (unless all
-                                                            (concat " -path '"
-                                                                    (substring proj-current
-                                                                               0
+                             (concat "find " proj-current (concat " -path '"
+                                                                    (substring proj-current 0
                                                                                (1- (length proj-current)))
-                                                                    "*/.*' -prune -o"))
+                                                                    "*/.*' -prune -o")
                                      " -path '*/.git' -prune -o -type f -print"))
+                            "\n" t))))))
+
+(defun proj-find-file-all (&optional filename)
+  (interactive)
+  (unless proj-current (proj-swap-to))
+  (when filename (find-file filename))
+  (let ((completion-extra-properties '(:category file))
+        (default-directory proj-current))
+    (find-file
+     (completing-read
+      (concat "Find any file in " (proj--clean-path proj-current) ": ")
+      (mapcar (lambda (str) (string-replace proj-current "" str))
+              (split-string (shell-command-to-string
+                             (concat "find " proj-current " -path '*/.git' -prune -o -type f -print"))
                             "\n" t))))))
 
 (defun proj-switch-to-buffer (&optional buffer-or-name)
@@ -209,21 +221,22 @@
 
 (defvar proj-prefix-map
   (let ((map (make-sparse-keymap)))
-    (define-key map "f" 'proj-find-file)
-    (define-key map "b" 'proj-switch-to-buffer)
-    (define-key map "k" 'proj-kill-buffer)
-    (define-key map "s" 'proj-set)
-    (define-key map "p" 'proj-swap-to)
-    (define-key map "d" 'proj-dired)
-    (define-key map "c" 'proj-compile)
-    (define-key map "r" 'proj-recompile)
-    (define-key map "g" 'proj-grep)
-    (define-key map "y" 'proj-copy-root-dir)
-    (define-key map "x" 'proj-execute)
-    (define-key map "!" 'proj-shell-command)
-    (define-key map "&" 'proj-async-shell-command)
+    (keymap-set map "f" 'proj-find-file)
+    (keymap-set map "F" 'proj-find-file-all)
+    (keymap-set map "b" 'proj-switch-to-buffer)
+    (keymap-set map "k" 'proj-kill-buffer)
+    (keymap-set map "s" 'proj-set)
+    (keymap-set map "p" 'proj-swap-to)
+    (keymap-set map "d" 'proj-dired)
+    (keymap-set map "c" 'proj-compile)
+    (keymap-set map "r" 'proj-recompile)
+    (keymap-set map "g" 'proj-grep)
+    (keymap-set map "y" 'proj-copy-root-dir)
+    (keymap-set map "x" 'proj-execute)
+    (keymap-set map "!" 'proj-shell-command)
+    (keymap-set map "&" 'proj-async-shell-command)
     map))
 
-(define-key ctl-x-map "p" proj-prefix-map)
+(keymap-set ctl-x-map "p" proj-prefix-map)
 
 (provide 'proj)
