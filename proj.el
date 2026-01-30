@@ -31,7 +31,7 @@
 
 (defun proj--get-buffer-path (buffer)
   (if (or (string-search "magit" (buffer-name buffer))
-          (string-search "compilation" (buffer-name buffer)))
+          (with-current-buffer buffer (member major-mode '(shell-command-mode compilation-mode))))
       (with-current-buffer buffer default-directory)
     (or (with-current-buffer buffer dired-directory) (buffer-file-name buffer))))
 
@@ -46,11 +46,11 @@
             proj-locations))))
 
 (defun proj-set (dir &optional quiet)
-  (interactive (list (read-directory-name "Set project directory: " 
+  (interactive (list (read-directory-name "Set project directory: "
                                           default-directory)))
   (if (and (not (eq proj-current nil)) (file-equal-p dir proj-current))
 	  (message "Project is already open")
-	
+
 	;; assign new current project
 	(add-to-list 'proj-previously-opened dir 'nil 'file-equal-p)
 	(setq proj-current (file-truename (concat dir "/")))
