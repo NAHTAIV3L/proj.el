@@ -50,10 +50,9 @@
                                           default-directory)))
   (if (and (not (eq proj-current nil)) (file-equal-p dir proj-current))
 	  (message "Project is already open")
-
 	;; assign new current project
-	(add-to-list 'proj-previously-opened dir 'nil 'file-equal-p)
 	(setq proj-current (file-truename (concat dir "/")))
+	(add-to-list 'proj-previously-opened proj-current 'nil 'file-equal-p)
 
 	;; set compilation command and directory when we switch
 	(setq compile-command (alist-get proj-current proj-compile-commands "make -k" nil #'equal))
@@ -68,9 +67,7 @@
 			)
 		(progn
 		  (unless quiet (dired proj-current))
-		  (delete-other-windows)
-		  )))
-	))
+		  (delete-other-windows))))))
 
 (defun proj-swap-to ()
   (interactive)
@@ -81,7 +78,7 @@
 				   (when proj-current
 					 (concat " (" (proj--clean-path proj-current) ")"))
 				   ": ")
-		   (append (proj--get-paths) '("Some other directory") proj-previously-opened)
+		   (append (proj--get-paths) '("Some other directory") (mapcar (lambda (f) (proj--clean-path f)) proj-previously-opened))
 		   nil t nil nil proj-current)))
 	(if (equal choice "Some other directory")
 		(call-interactively 'proj-set)
