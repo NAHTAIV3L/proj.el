@@ -78,10 +78,10 @@
 				   (when proj-current
 					 (concat " (" (proj--clean-path proj-current) ")"))
 				   ": ")
-		   (append (proj--get-paths) '("Some other directory") (mapcar (lambda (f) (proj--clean-path f)) proj-previously-opened))
+		   (append (proj--get-paths) '("NO PROJECT") (mapcar (lambda (f) (proj--clean-path f)) proj-previously-opened))
 		   nil t nil nil proj-current)))
-	(if (equal choice "Some other directory")
-		(call-interactively 'proj-set)
+	(if (equal choice "NO PROJECT")
+		(proj-set 'nil)
 	  (proj-set choice))))
 
 (defun proj-find-file (&optional filename)
