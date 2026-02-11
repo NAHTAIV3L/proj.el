@@ -168,6 +168,7 @@
     (call-interactively 'compile)))
 
 (defun proj-recompile ()
+  (interactive)
   (unless proj-current (proj-swap-to))
   (let ((default-directory proj-current))
     (call-interactively 'recompile)))

@@ -8,6 +8,7 @@ add features
 - [ ] proj-swap-to uses history
 - [ ] function to "create" new project in project directory
 - [ ] save project state to file
+- [ ] add proj-close which closes currently open project
 
 make it a real package
 - [ ] setting variable (opt in to features)
