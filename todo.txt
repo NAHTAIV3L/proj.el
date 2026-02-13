@@ -1,15 +1,15 @@
 make it more robust
 - [ ] way to set no project (and functions should work without project open)
-- [ ] opening emacs client "opens" to current project
 - [ ] frame local project
 
 add features
 - [ ] proj-swap-to uses history
 - [ ] function to "create" new project in project directory
 - [ ] save project state to file
-- [ ] add proj-close which closes currently open project
+- [ ] add proj-close which closes currently open project (and it's buffers)
+- [ ] make it easy to make state "project-local" (with an alias)
 
 make it a real package
-- [ ] setting variable (opt in to features)
+- [ ] proj global mode
+- [ ] settings variables (opt in to features)
 - [ ] hooks
-- [ ] make it easy to make state "project-local"
