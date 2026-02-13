@@ -14,26 +14,30 @@
 (defvar proj-current nil
   "Current project root")
 
-(defvar proj-previously-opened '()
-  "List of projects that have been previously opened")
-
 ;; per project state
-(defvar proj-compile-commands '()
-  "Compile commands for each project")
-
-(defvar proj-compilation-directories '()
-  "Compilation directories for each project")
-
-(defvar proj-window-configurations '()
-  "Window configuration for each project")
+(defvar proj-state (make-hash-table :test 'eq)
+  "project state per project")
 
 (defmacro proj--clean-path (path) `(string-replace (getenv "HOME") "~" ,path))
+
+(defmacro proj--str-to-key (path) `(intern (concat ":" ,path)))
+(defmacro proj--key-to-str (key) `(substring (symbol-name ,key) 1))
+
+(defmacro proj--plist-get-def (plist prop def) `(or (plist-get ,plist ,prop) ,def))
+
+(defmacro proj--current-state () `(gethash (proj--str-to-key proj-current) proj-state nil))
 
 (defun proj--get-buffer-path (buffer)
   (if (or (string-search "magit" (buffer-name buffer))
           (with-current-buffer buffer (member major-mode '(shell-command-mode compilation-mode))))
       (with-current-buffer buffer default-directory)
     (or (with-current-buffer buffer dired-directory) (buffer-file-name buffer))))
+
+(defun proj-previously-opened ()
+  (if (hash-table-keys proj-state)
+    (mapcar (lambda (key) (proj--clean-path (proj--key-to-str key)))
+            (hash-table-keys proj-state))
+    nil))
 
 (defun proj--get-paths ()
   (delete proj-current
@@ -52,22 +56,20 @@
 	  (message "Project is already open")
 	;; assign new current project
 	(setq proj-current (file-truename (concat dir "/")))
-	(add-to-list 'proj-previously-opened proj-current 'nil 'file-equal-p)
-
+	;; (add-to-list 'proj-previously-opened proj-current 'nil 'file-equal-p)
+    (unless (gethash (proj--str-to-key proj-current) proj-state nil)
+      (puthash (proj--str-to-key proj-current) (make-hash-table :test 'eq) proj-state))
 	;; set compilation command and directory when we switch
-	(setq compile-command (alist-get proj-current proj-compile-commands "make -k" nil #'equal))
-	(setq compilation-directory (alist-get proj-current proj-compilation-directories proj-current nil #'equal))
-
-	;; restore window configuration or open dired
-	(let ((new-window-conf (alist-get proj-current proj-window-configurations nil nil #'equal)))
-	  (if new-window-conf
-		  (progn
-			(set-window-configuration new-window-conf)
-			(other-window 1)
-			)
-		(progn
-		  (unless quiet (dired proj-current))
-		  (delete-other-windows))))))
+    (let ((current-state (proj--current-state)))
+      (setq compile-command (gethash :compile-command current-state "make -k"))
+      (setq compilation-directory (gethash :compilation-directory current-state proj-current))
+      (if (gethash :window-configuration current-state nil)
+          (progn
+            (set-window-configuration (gethash :window-configuration current-state))
+            (other-window 1))
+        (progn
+          (unless quiet (dired proj-current))
+          (delete-other-windows))))))
 
 (defun proj-swap-to ()
   (interactive)
@@ -78,7 +80,11 @@
 				   (when proj-current
 					 (concat " (" (proj--clean-path proj-current) ")"))
 				   ": ")
-		   (append (proj--get-paths) '("NO PROJECT") (mapcar (lambda (f) (proj--clean-path f)) proj-previously-opened))
+		   (append (proj--get-paths)
+           (if (proj-previously-opened)
+               (append '("NO PROJECT")
+                       (mapcar (lambda (f) (proj--clean-path f)) (proj-previously-opened)))
+             '("NO PROJECT")))
 		   nil t nil nil proj-current)))
 	(if (equal choice "NO PROJECT")
 		(proj-set 'nil)
@@ -176,11 +182,9 @@
 (defun proj-compile-action (_)
   "grab compilation command and directory whenever we compile"
   (when proj-current
-	(progn
-	  (setf (alist-get proj-current proj-compile-commands nil nil #'equal)
-			compile-command)
-	  (setf (alist-get proj-current proj-compilation-directories nil nil #'equal)
-			compilation-directory))))
+    (let ((current-state (proj--current-state)))
+    (puthash :compile-command compile-command current-state)
+    (puthash :compilation-directory compilation-directory current-state))))
 (add-hook 'compilation-start-hook 'proj-compile-action)
 
 (defun proj--compilation-buffer-name-function (mode)
@@ -191,7 +195,8 @@
 
 ;; window configuration hook
 (defun proj--window-configuration-changed-action ()
-  (setf (alist-get proj-current proj-window-configurations nil nil #'equal) (current-window-configuration)))
+  (when proj-current
+      (puthash :window-configuration (current-window-configuration) (gethash (proj--str-to-key proj-current) proj-state))))
 (add-hook `window-configuration-change-hook 'proj--window-configuration-changed-action)
 
 (defun proj-copy-root-dir ()
