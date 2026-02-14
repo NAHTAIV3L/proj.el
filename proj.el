@@ -76,6 +76,36 @@
                           "\n" t))
                        proj-locations))))))))
 
+(defun proj--save-state ()
+  "Saves state of current project"
+  ;; add current proj to hash table if not in it
+  (unless (gethash (proj--str-to-key proj-current) proj-state nil)
+    (puthash (proj--str-to-key proj-current) (make-hash-table :test 'eq) proj-state))
+
+  ;; saves state of current project to hash table
+  (proj--plist-map
+   (lambda (key value)
+     (let ((current-state (proj--current-state))
+           (val (funcall value :get-emacs-state nil)))
+       (puthash key val current-state)))
+   proj-property-handlers))
+
+(defun proj--restore-state ()
+  "Restores state of current project, or sets up the default"
+  (if (gethash (proj--str-to-key proj-current) proj-state nil)
+	  ;; restore emacs values
+      (proj--plist-map
+       (lambda (key value)
+		 (let* ((current-state (proj--current-state))
+				(val (gethash key current-state nil)))
+           (funcall value :set-emacs-state val)))
+       proj-property-handlers)
+	;; or restore default values
+	(proj--plist-map
+	 (lambda (key value)
+       (funcall value :set-default-emacs-state nil))
+	 proj-property-handlers)))
+
 ;; Property Helpers
 (defmacro proj-add-property-handler (property handler)
   `(setq proj-property-handlers (plist-put proj-property-handlers ,property ,handler)))
@@ -128,44 +158,24 @@
     (setq ,symbol ,default)))
 
 ;; User functions
-
 (defun proj-set (dir)
-  "Sets current project to dir and updates state. The most important function."
+  "Sets current project to dir and updates state. The most important function"
   (interactive (list (read-directory-name "Set project directory: "
                                           default-directory)))
   (if (or (equal dir proj-current) (file-equal-p dir proj-current))
 	  (message "Project is already open")
 
-	;; add current proj to hash table if not in it
-    (unless (gethash (proj--str-to-key proj-current) proj-state nil)
-      (puthash (proj--str-to-key proj-current) (make-hash-table :test 'eq) proj-state))
-
-	;; saves state of current project to hash table
-    (proj--plist-map
-     (lambda (key value)
-       (let ((current-state (proj--current-state))
-             (val (funcall value :get-emacs-state nil)))
-         (puthash key val current-state)))
-     proj-property-handlers)
-
+	;; save state of current project
+	(proj--save-state)
+	
 	;; set proj current
 	(setq proj-current (if (equal dir proj-no-project-name)
 						   dir
                          (file-truename (concat dir "/"))))
 
-    (if (gethash (proj--str-to-key proj-current) proj-state nil)
-		;; restore emacs values
-        (proj--plist-map
-         (lambda (key value)
-           (let* ((current-state (proj--current-state))
-                  (val (gethash key current-state nil)))
-             (funcall value :set-emacs-state val)))
-         proj-property-handlers)
-	  ;; restore default values
-      (proj--plist-map
-       (lambda (key value)
-         (funcall value :set-default-emacs-state nil))
-       proj-property-handlers))))
+	;; restore state of new project
+	(proj--restore-state)
+    ))
 
 (defun proj-close ()
   (interactive)
