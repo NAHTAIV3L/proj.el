@@ -11,27 +11,103 @@
 (defvar proj-grep-function #'grep
   "What function to run for proj-grep")
 
-(defvar proj-current nil
+(defvar proj-no-project-name "NO PROJECT"
+  "String to show as no project")
+
+(defvar proj-current proj-no-project-name
   "Current project root")
 
 ;; per project state
 (defvar proj-state (make-hash-table :test 'eq)
   "project state per project")
 
+(defvar proj-property-handlers '()
+  "handlers")
+
+
 (defmacro proj--clean-path (path) `(string-replace (getenv "HOME") "~" ,path))
 
 (defmacro proj--str-to-key (path) `(intern (concat ":" ,path)))
 (defmacro proj--key-to-str (key) `(substring (symbol-name ,key) 1))
 
-(defmacro proj--plist-get-def (plist prop def) `(or (plist-get ,plist ,prop) ,def))
-
 (defmacro proj--current-state () `(gethash (proj--str-to-key proj-current) proj-state nil))
 
-(defun proj--get-buffer-path (buffer)
-  (if (or (string-search "magit" (buffer-name buffer))
-          (with-current-buffer buffer (member major-mode '(shell-command-mode compilation-mode))))
-      (with-current-buffer buffer default-directory)
-    (or (with-current-buffer buffer dired-directory) (buffer-file-name buffer))))
+(defmacro proj--save-current-state-property (prop value) `(puthash ,prop ,value (proj--current-state)))
+(defmacro proj--get-current-state-property (prop) `(gethash ,prop (proj--current-state) nil))
+
+(defmacro proj--plist-map (func plist)
+  `(cl-loop for (key value) on ,plist by 'cddr do
+           (funcall ,func key value)))
+
+(defmacro proj-add-property-handler (property handler)
+  `(setq proj-property-handlers (plist-put proj-property-handlers ,property ,handler)))
+
+(defmacro proj--gen-handler (&rest body)
+  "calls every section with ACTION and VALUE defined"
+  (let ((cases nil)
+        (function-doc nil)
+        (current-key nil)
+        (current-forms nil))
+    (when (stringp (car body))
+      (setq function-doc (pop body)))
+    (while body
+      (setq current-key (pop body))
+      (when (not (memq current-key '(:set-emacs-state :get-emacs-state :set-default-emacs-state)))
+        (error "Invalid Symbol: %s" (symbol-name current-key)))
+      (setq current-forms nil)
+      (while (and body (not (keywordp (car body))))
+        (push (pop body) current-forms))
+      (push `(,current-key ,@(nreverse current-forms)) cases))
+
+    (if function-doc
+        `(lambda (action value)
+           ,function-doc
+           (pcase action
+             ,@(nreverse cases)))
+      `(lambda (action value)
+         (pcase action
+           ,@(nreverse cases))))))
+
+(defmacro proj--var-handler-emacs-default (symbol)
+  (let ((startup-value symbol))
+    `(proj--gen-handler
+      :set-emacs-state
+      (setq ,symbol value)
+      :get-emacs-state
+      ,symbol
+      :set-default-emacs-state
+      (setq ,symbol ,startup-value))))
+
+(defmacro proj--var-handler-default (symbol default)
+    `(proj--gen-handler
+      :set-emacs-state
+      (setq ,symbol value)
+      :get-emacs-state
+      ,symbol
+      :set-default-emacs-state
+      (setq ,symbol ,default)))
+
+(fset 'proj--window-configuration-handler
+      (proj--gen-handler
+       :set-emacs-state
+       (set-window-configuration value)
+       (other-window 1)
+       :get-emacs-state
+       (current-window-configuration)
+       :set-default-emacs-state
+       (dired proj-current)
+       (delete-other-windows)))
+
+(fset 'proj--compile-command-handler (proj--var-handler-emacs-default compile-command))
+(fset 'proj--compilation-directory-handler (proj--var-handler-default compilation-directory proj-current))
+
+(proj-add-property-handler :window-configuration 'proj--window-configuration-handler)
+(proj-add-property-handler :compile-command 'proj--compile-command-handler)
+(proj-add-property-handler :compilation-directory 'proj--compilation-directory-handler)
+
+(defun proj--get-buffer-path (buffer) (with-current-buffer buffer default-directory))
+
+(defun proj--is-inactive () (equal proj-current proj-no-project-name))
 
 (defun proj-previously-opened ()
   (if (hash-table-keys proj-state)
@@ -40,187 +116,220 @@
     nil))
 
 (defun proj--get-paths ()
-  (delete proj-current
-   (flatten-list (mapcar
-     (lambda (p)
-       (mapcar (lambda (str) (proj--clean-path (concat str "/")))
-        (split-string (shell-command-to-string
-          (concat "find " p " " (mapconcat (lambda (param) (concat param " ")) proj-find-params)))
-         "\n" t)))
-            proj-locations))))
+  (mapcar
+   (lambda (str)
+     (if (equal str proj-no-project-name)
+         str
+       (proj--clean-path str)))
+   (delete proj-current
+           (mapcar
+            (lambda (str)
+              (if (equal str proj-no-project-name)
+                  str
+                (file-truename (concat str "/"))))
+            (append (list proj-no-project-name)
+                    (append
+                     (delete proj-no-project-name
+                             (mapcar (lambda (key) (proj--key-to-str key))
+                                     (hash-table-keys proj-state)))
+                     (flatten-list
+                      (mapcar
+                       (lambda (p)
+                         (split-string
+                          (shell-command-to-string
+                           (concat "find " p " " (mapconcat (lambda (param) (concat param " ")) proj-find-params)))
+                          "\n" t))
+                       proj-locations))))))))
 
-(defun proj-set (dir &optional quiet)
+(defun proj-set (dir)
   (interactive (list (read-directory-name "Set project directory: "
                                           default-directory)))
-  (if (and (not (eq proj-current nil)) (file-equal-p dir proj-current))
+  (if (or (equal dir proj-current) (file-equal-p dir proj-current))
 	  (message "Project is already open")
-	;; assign new current project
-	(setq proj-current (file-truename (concat dir "/")))
-	;; (add-to-list 'proj-previously-opened proj-current 'nil 'file-equal-p)
+
     (unless (gethash (proj--str-to-key proj-current) proj-state nil)
       (puthash (proj--str-to-key proj-current) (make-hash-table :test 'eq) proj-state))
-	;; set compilation command and directory when we switch
-    (let ((current-state (proj--current-state)))
-      (setq compile-command (gethash :compile-command current-state "make -k"))
-      (setq compilation-directory (gethash :compilation-directory current-state proj-current))
-      (if (gethash :window-configuration current-state nil)
-          (progn
-            (set-window-configuration (gethash :window-configuration current-state))
-            (other-window 1))
-        (progn
-          (unless quiet (dired proj-current))
-          (delete-other-windows))))))
+
+    (proj--plist-map
+     (lambda (key value)
+       (let ((current-state (proj--current-state))
+             (val (funcall value :get-emacs-state nil)))
+         (puthash key val current-state)))
+     proj-property-handlers)
+
+	(setq proj-current (if (equal dir proj-no-project-name)
+                           dir
+                         (file-truename (concat dir "/"))))
+
+    (if (gethash (proj--str-to-key proj-current) proj-state nil)
+        (proj--plist-map
+         (lambda (key value)
+           (let* ((current-state (proj--current-state))
+                  (val (gethash key current-state nil)))
+             (funcall value :set-emacs-state val)))
+         proj-property-handlers)
+      (proj--plist-map
+       (lambda (key value)
+         (funcall value :set-default-emacs-state nil))
+       proj-property-handlers))))
+
+(defun proj-close ()
+  (interactive)
+  (unless (gethash (proj--str-to-key proj-current) proj-state nil)
+    (puthash (proj--str-to-key proj-current) (make-hash-table :test 'eq) proj-state))
+
+  (proj--plist-map
+   (lambda (key value)
+     (let ((current-state (proj--current-state))
+           (val (funcall value :get-emacs-state nil)))
+       (puthash key val current-state)))
+   proj-property-handlers)
+
+  (let* ((completion-extra-properties '(:category file))
+         (choice
+          (file-truename
+           (concat
+            (completing-read
+             (concat "Kill project"
+                     (when proj-current
+                       (concat " (" (proj--clean-path proj-current) ")"))
+                     ": ")
+             (delete proj-no-project-name (proj-previously-opened))
+             nil t nil nil (if (proj--is-inactive) nil proj-current))
+            "/")))
+         (pred
+          (lambda (b)
+            (let ((path (proj--get-buffer-path b)))
+              (when path (file-in-directory-p (file-truename path) choice))))))
+    (when (equal choice proj-current) (proj-set proj-no-project-name))
+    (mapcar 'kill-buffer (seq-filter pred (buffer-list)))))
 
 (defun proj-swap-to ()
   (interactive)
   (let* ((completion-extra-properties '(:category file))
-		 (choice
-		  (completing-read
-		   (concat "Switch to project"
-				   (when proj-current
-					 (concat " (" (proj--clean-path proj-current) ")"))
-				   ": ")
-		   (append (proj--get-paths)
-           (if (proj-previously-opened)
-               (append '("NO PROJECT")
-                       (mapcar (lambda (f) (proj--clean-path f)) (proj-previously-opened)))
-             '("NO PROJECT")))
-		   nil t nil nil proj-current)))
-	(if (equal choice "NO PROJECT")
-		(proj-set 'nil)
-	  (proj-set choice))))
+         (choice
+          (completing-read
+           (concat "Switch to project"
+                   (when proj-current
+                     (concat " (" (proj--clean-path proj-current) ")"))
+                   ": ")
+           (proj--get-paths)
+           nil t nil nil proj-current)))
+    (proj-set choice)))
 
-(defun proj-find-file (&optional filename)
+(defun proj-find-file ()
   (interactive)
-  (unless proj-current (proj-swap-to))
-  (when filename (find-file filename))
-  (let ((completion-extra-properties '(:category file))
-        (default-directory proj-current))
-    (find-file
-     (completing-read
-      (concat "Find file in " (proj--clean-path proj-current) ": ")
-      (mapcar (lambda (str) (string-replace proj-current "" str))
-              (split-string (shell-command-to-string
-                             (concat "find " proj-current (concat " -path '"
+  (if (proj--is-inactive)
+      (call-interactively 'find-file)
+    (let ((completion-extra-properties '(:category file))
+          (default-directory proj-current))
+      (find-file
+       (completing-read
+        (concat "Find file in " (proj--clean-path proj-current) ": ")
+        (mapcar (lambda (str) (string-replace proj-current "" str))
+                (split-string (shell-command-to-string
+                               (concat "find " proj-current (concat " -path '"
                                                                     (substring proj-current 0
                                                                                (1- (length proj-current)))
                                                                     "*/.*' -prune -o")
-                                     " -path '*/.git' -prune -o -type f -print"))
-                            "\n" t))))))
+                                       " -path '*/.git' -prune -o -type f -print"))
+                              "\n" t)))))))
 
-(defun proj-find-file-all (&optional filename)
+(defun proj-find-file-all ()
   (interactive)
-  (unless proj-current (proj-swap-to))
-  (when filename (find-file filename))
-  (let ((completion-extra-properties '(:category file))
-        (default-directory proj-current))
-    (find-file
-     (completing-read
-      (concat "Find any file in " (proj--clean-path proj-current) ": ")
-      (mapcar (lambda (str) (string-replace proj-current "" str))
-              (split-string (shell-command-to-string
-                             (concat "find " proj-current " -path '*/.git' -prune -o -type f -print"))
-                            "\n" t))))))
+  (if (proj--is-inactive)
+      (call-interactively 'find-file)
+    (let ((completion-extra-properties '(:category file))
+          (default-directory proj-current))
+      (find-file
+       (completing-read
+        (concat "Find any file in " (proj--clean-path proj-current) ": ")
+        (mapcar (lambda (str) (string-replace proj-current "" str))
+                (split-string (shell-command-to-string
+                               (concat "find " proj-current " -path '*/.git' -prune -o -type f -print"))
+                              "\n" t)))))))
 
-(defun proj-switch-to-buffer (&optional buffer-or-name)
+(defun proj-switch-to-buffer ()
   (interactive)
-  (unless proj-current (proj-swap-to))
-  (switch-to-buffer
-   (or buffer-or-name
-       (let* ((other-buffer (other-buffer (current-buffer)))
-              (other-name (buffer-name other-buffer))
-              (pred (lambda (b)
+  (if (proj--is-inactive)
+      (call-interactively 'switch-to-buffer)
+    (switch-to-buffer
+     (let* ((other-buffer (other-buffer (current-buffer)))
+            (other-name (buffer-name other-buffer))
+            (pred (lambda (b)
+                    (let ((path (proj--get-buffer-path (cdr b))))
+                      (when path
+                        (or
+                         (equal (car b) "*scratch*")
+                         (file-in-directory-p (file-truename path) proj-current)))))))
+       (read-buffer
+        (concat "Switch to buffer in " (proj--clean-path proj-current) ": ")
+        (when (funcall pred (cons other-name other-buffer))
+          other-name)
+        nil pred)))))
+
+(defun proj-kill-buffer ()
+  (interactive)
+  (if (proj--is-inactive)
+      (call-interactively 'kill-buffer)
+    (kill-buffer
+     (let* ((buffer (current-buffer))
+            (buffer-name (buffer-name buffer))
+            (pred (lambda (b)
+                    (if (eq (cdr b) buffer) t
                       (let ((path (proj--get-buffer-path (cdr b))))
-                        (when path (file-in-directory-p (file-truename path) proj-current))))))
-         (read-buffer
-          (concat "Switch to buffer in " (proj--clean-path proj-current) ": ")
-          (when (funcall pred (cons other-name other-buffer))
-            other-name)
-          nil pred)))))
-
-(defun proj-kill-buffer (&optional buffer-or-name)
-  (interactive)
-  (unless proj-current (proj-swap-to))
-  (kill-buffer
-   (or buffer-or-name
-       (let* ((buffer (current-buffer))
-              (buffer-name (buffer-name buffer))
-              (pred (lambda (b)
-                      (if (eq (cdr b) buffer) t
-                        (let ((path (proj--get-buffer-path (cdr b))))
-                          (when path (file-in-directory-p (file-truename path) proj-current)))))))
-         (read-buffer
-          (concat "Kill buffer in " (proj--clean-path proj-current) ": ")
-          (when (funcall pred (cons buffer-name buffer))
-            buffer-name)
-          nil pred)))))
+                        (when path (file-in-directory-p (file-truename path) proj-current)))))))
+       (read-buffer
+        (concat "Kill buffer in " (proj--clean-path proj-current) ": ")
+        (when (funcall pred (cons buffer-name buffer))
+          buffer-name)
+        nil pred)))))
 
 (defun proj-dired ()
   (interactive)
-  (if proj-current
-      (dired proj-current)
-    (proj-swap-to)))
+  (if (proj--is-inactive)
+      (call-interactively 'dired)
+    (dired proj-current)))
 
 (defun proj-grep ()
   (interactive)
-  (unless proj-current (proj-swap-to))
-  (let ((default-directory proj-current))
+  (let ((default-directory (if (proj--is-inactive) default-directory proj-current)))
     (when proj-grep-function (call-interactively proj-grep-function))))
 
 (defun proj-compile ()
   (interactive)
-  (unless proj-current (proj-swap-to))
-  (let ((default-directory proj-current))
+  (let ((default-directory (if (proj--is-inactive) default-directory proj-current)))
     (call-interactively 'compile)))
 
-(defun proj-recompile ()
-  (interactive)
-  (unless proj-current (proj-swap-to))
-  (let ((default-directory proj-current))
-    (call-interactively 'recompile)))
-
-(defun proj-compile-action (_)
-  "grab compilation command and directory whenever we compile"
-  (when proj-current
-    (let ((current-state (proj--current-state)))
-    (puthash :compile-command compile-command current-state)
-    (puthash :compilation-directory compilation-directory current-state))))
-(add-hook 'compilation-start-hook 'proj-compile-action)
+(fset 'proj-recompile 'recompile)
 
 (defun proj--compilation-buffer-name-function (mode)
-  (if proj-current
-      (concat "*" (file-name-nondirectory (directory-file-name proj-current)) ": compilation*")
-    (concat "*" (downcase mode) "*")))
+  (if (proj--is-inactive)
+      (concat "*" (downcase mode) "*")
+    (concat "*" (file-name-nondirectory (directory-file-name proj-current)) ": compilation*")))
 (setq compilation-buffer-name-function 'proj--compilation-buffer-name-function)
-
-;; window configuration hook
-(defun proj--window-configuration-changed-action ()
-  (when proj-current
-      (puthash :window-configuration (current-window-configuration) (gethash (proj--str-to-key proj-current) proj-state))))
-(add-hook `window-configuration-change-hook 'proj--window-configuration-changed-action)
 
 (defun proj-copy-root-dir ()
   (interactive)
-  (unless proj-current (proj-swap-to))
-  (kill-new proj-current)
-  (gui-set-selection nil proj-current))
+  (let ((value (if (proj--is-inactive)
+                   "I See Your Schwartz Is as Big as Mine"
+                 proj-current)))
+    (kill-new value)
+    (gui-set-selection nil value)))
 
 (defun proj-execute ()
   (interactive)
-  (unless proj-current (proj-swap-to))
-  (let ((default-directory proj-current))
+  (let ((default-directory (if (proj--is-inactive) default-directory proj-current)))
 	(execute-extended-command nil)))
 
 (defun proj-shell-command ()
   (interactive)
-  (unless proj-current (proj-swap-to))
-  (let ((default-directory proj-current))
+  (let ((default-directory (if (proj--is-inactive) default-directory proj-current)))
 	(call-interactively 'shell-command)))
 
 (defun proj-async-shell-command ()
   (interactive)
-  (unless proj-current (proj-swap-to))
-  (let ((default-directory proj-current))
+  (let ((default-directory (if (proj--is-inactive) default-directory proj-current)))
 	(call-interactively 'async-shell-command)))
 
 (defvar proj-prefix-map
