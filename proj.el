@@ -1,5 +1,6 @@
 (require 'cl-lib)
 
+;; Configurable Variables
 (defvar proj-locations
   '("~/dev" "~/latex" "~/rpi")
   "Value for where to look for projects")
@@ -11,20 +12,20 @@
 (defvar proj-grep-function #'grep
   "What function to run for proj-grep")
 
-(defvar proj-no-project-name "NO PROJECT"
+(defvar proj-no-project-name "No Project"
   "String to show as no project")
 
+;; Important State
 (defvar proj-current proj-no-project-name
   "Current project root")
 
-;; per project state
 (defvar proj-state (make-hash-table :test 'eq)
   "project state per project")
 
 (defvar proj-property-handlers '()
   "handlers")
 
-
+;; Utils
 (defmacro proj--clean-path (path) `(string-replace (getenv "HOME") "~" ,path))
 
 (defmacro proj--str-to-key (path) `(intern (concat ":" ,path)))
@@ -39,6 +40,43 @@
   `(cl-loop for (key value) on ,plist by 'cddr do
            (funcall ,func key value)))
 
+(defun proj--get-buffer-path (buffer) (with-current-buffer buffer default-directory))
+
+(defun proj--is-inactive () (equal proj-current proj-no-project-name))
+
+(defun proj-previously-opened ()
+  (if (hash-table-keys proj-state)
+      (mapcar (lambda (key) (proj--clean-path (proj--key-to-str key)))
+              (hash-table-keys proj-state))
+    nil))
+
+(defun proj--get-paths ()
+  (mapcar
+   (lambda (str)
+     (if (equal str proj-no-project-name)
+         str
+       (proj--clean-path str)))
+   (delete proj-current
+           (mapcar
+            (lambda (str)
+              (if (equal str proj-no-project-name)
+                  str
+                (file-truename (concat str "/"))))
+            (append (list proj-no-project-name)
+                    (append
+                     (delete proj-no-project-name
+                             (mapcar (lambda (key) (proj--key-to-str key))
+                                     (hash-table-keys proj-state)))
+                     (flatten-list
+                      (mapcar
+                       (lambda (p)
+                         (split-string
+                          (shell-command-to-string
+                           (concat "find " p " " (mapconcat (lambda (param) (concat param " ")) proj-find-params)))
+                          "\n" t))
+                       proj-locations))))))))
+
+;; Property Helpers
 (defmacro proj-add-property-handler (property handler)
   `(setq proj-property-handlers (plist-put proj-property-handlers ,property ,handler)))
 
@@ -69,87 +107,40 @@
            ,@(nreverse cases))))))
 
 (defmacro proj--var-handler-emacs-default (symbol)
+  "Generates property handler for global variable symbol, takes emacs default as default." 
   (let ((startup-value symbol))
-    `(proj--gen-handler
-      :set-emacs-state
-      (setq ,symbol value)
-      :get-emacs-state
-      ,symbol
-      :set-default-emacs-state
-      (setq ,symbol ,startup-value))))
+	`(proj--gen-handler
+	  :set-emacs-state
+	  (setq ,symbol value)
+	  :get-emacs-state
+	  ,symbol
+	  :set-default-emacs-state
+	  (setq ,symbol ,startup-value))))
 
 (defmacro proj--var-handler-default (symbol default)
-    `(proj--gen-handler
-      :set-emacs-state
-      (setq ,symbol value)
-      :get-emacs-state
-      ,symbol
-      :set-default-emacs-state
-      (setq ,symbol ,default)))
+  "Generates property handler for global variable symbol, specify default." 
+  `(proj--gen-handler
+    :set-emacs-state
+    (setq ,symbol value)
+    :get-emacs-state
+    ,symbol
+    :set-default-emacs-state
+    (setq ,symbol ,default)))
 
-(fset 'proj--window-configuration-handler
-      (proj--gen-handler
-       :set-emacs-state
-       (set-window-configuration value)
-       (other-window 1)
-       :get-emacs-state
-       (current-window-configuration)
-       :set-default-emacs-state
-       (dired proj-current)
-       (delete-other-windows)))
-
-(fset 'proj--compile-command-handler (proj--var-handler-emacs-default compile-command))
-(fset 'proj--compilation-directory-handler (proj--var-handler-default compilation-directory proj-current))
-
-(proj-add-property-handler :window-configuration 'proj--window-configuration-handler)
-(proj-add-property-handler :compile-command 'proj--compile-command-handler)
-(proj-add-property-handler :compilation-directory 'proj--compilation-directory-handler)
-
-(defun proj--get-buffer-path (buffer) (with-current-buffer buffer default-directory))
-
-(defun proj--is-inactive () (equal proj-current proj-no-project-name))
-
-(defun proj-previously-opened ()
-  (if (hash-table-keys proj-state)
-    (mapcar (lambda (key) (proj--clean-path (proj--key-to-str key)))
-            (hash-table-keys proj-state))
-    nil))
-
-(defun proj--get-paths ()
-  (mapcar
-   (lambda (str)
-     (if (equal str proj-no-project-name)
-         str
-       (proj--clean-path str)))
-   (delete proj-current
-           (mapcar
-            (lambda (str)
-              (if (equal str proj-no-project-name)
-                  str
-                (file-truename (concat str "/"))))
-            (append (list proj-no-project-name)
-                    (append
-                     (delete proj-no-project-name
-                             (mapcar (lambda (key) (proj--key-to-str key))
-                                     (hash-table-keys proj-state)))
-                     (flatten-list
-                      (mapcar
-                       (lambda (p)
-                         (split-string
-                          (shell-command-to-string
-                           (concat "find " p " " (mapconcat (lambda (param) (concat param " ")) proj-find-params)))
-                          "\n" t))
-                       proj-locations))))))))
+;; User functions
 
 (defun proj-set (dir)
+  "Sets current project to dir and updates state. The most important function."
   (interactive (list (read-directory-name "Set project directory: "
                                           default-directory)))
   (if (or (equal dir proj-current) (file-equal-p dir proj-current))
 	  (message "Project is already open")
 
+	;; add current proj to hash table if not in it
     (unless (gethash (proj--str-to-key proj-current) proj-state nil)
       (puthash (proj--str-to-key proj-current) (make-hash-table :test 'eq) proj-state))
 
+	;; saves state of current project to hash table
     (proj--plist-map
      (lambda (key value)
        (let ((current-state (proj--current-state))
@@ -157,17 +148,20 @@
          (puthash key val current-state)))
      proj-property-handlers)
 
+	;; set proj current
 	(setq proj-current (if (equal dir proj-no-project-name)
-                           dir
+						   dir
                          (file-truename (concat dir "/"))))
 
     (if (gethash (proj--str-to-key proj-current) proj-state nil)
+		;; restore emacs values
         (proj--plist-map
          (lambda (key value)
            (let* ((current-state (proj--current-state))
                   (val (gethash key current-state nil)))
              (funcall value :set-emacs-state val)))
          proj-property-handlers)
+	  ;; restore default values
       (proj--plist-map
        (lambda (key value)
          (funcall value :set-default-emacs-state nil))
@@ -312,7 +306,7 @@
 (defun proj-copy-root-dir ()
   (interactive)
   (let ((value (if (proj--is-inactive)
-                   "I See Your Schwartz Is as Big as Mine"
+                   default-directory
                  proj-current)))
     (kill-new value)
     (gui-set-selection nil value)))
@@ -332,6 +326,7 @@
   (let ((default-directory (if (proj--is-inactive) default-directory proj-current)))
 	(call-interactively 'async-shell-command)))
 
+;; assign keybinds
 (defvar proj-prefix-map
   (let ((map (make-sparse-keymap)))
     (keymap-set map "f" 'proj-find-file)
@@ -349,7 +344,19 @@
     (keymap-set map "!" 'proj-shell-command)
     (keymap-set map "&" 'proj-async-shell-command)
     map))
-
 (keymap-set ctl-x-map "p" proj-prefix-map)
+
+;; set up properties
+(proj-add-property-handler :window-configuration (proj--gen-handler
+												  :set-emacs-state
+												  (set-window-configuration value)
+												  (other-window 1)
+												  :get-emacs-state
+												  (current-window-configuration)
+												  :set-default-emacs-state
+												  (dired proj-current)
+												  (delete-other-windows)))
+(proj-add-property-handler :compile-command (proj--var-handler-emacs-default compile-command))
+(proj-add-property-handler :compilation-directory (proj--var-handler-default compilation-directory proj-current))
 
 (provide 'proj)

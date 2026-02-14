@@ -1,13 +1,13 @@
 make it more robust
-- [ ] way to set no project (and functions should work without project open)
+- [x] way to set no project (and functions should work without project open)
 - [ ] frame local project
 
 add features
+- [x] add proj-close which closes currently open project (and it's buffers)
+- [x] make it easy to make state "project-local"
 - [ ] proj-swap-to uses history
 - [ ] function to "create" new project in project directory
 - [ ] save project state to file
-- [ ] add proj-close which closes currently open project (and it's buffers)
-- [ ] make it easy to make state "project-local" (with an alias)
 
 make it a real package
 - [ ] proj global mode
