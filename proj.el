@@ -137,8 +137,8 @@
            ,@(nreverse cases))))))
 
 (defmacro proj--var-handler-emacs-default (symbol)
+  "Generates property handler for global variable SYMBOL, takes emacs default as default value."
   (let ((startup-value (symbol-value symbol)))
-  "Generates property handler for global variable symbol, takes emacs default as default."
     `(proj--gen-handler
       :set-emacs-state
       (setq ,symbol value)
@@ -148,7 +148,7 @@
       (setq ,symbol ,startup-value))))
 
 (defmacro proj--var-handler-default (symbol default)
-  "Generates property handler for global variable symbol, specify default."
+  "Generates property handler for global variable SYMBOL, specify DEFAULT value."
   `(proj--gen-handler
     :set-emacs-state
     (setq ,symbol value)
