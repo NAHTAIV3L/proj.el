@@ -206,7 +206,10 @@
             (let ((path (proj--get-buffer-path b)))
               (when path (file-in-directory-p (file-truename path) choice))))))
     (when (equal choice proj-current) (proj-set proj-no-project-name))
-    (mapcar 'kill-buffer (seq-filter pred (buffer-list)))))
+    (mapcar 'kill-buffer (seq-filter pred (buffer-list)))
+    (let ((closed-project-state (gethash (proj--str-to-key choice) proj-state nil)))
+      (when (and closed-project-state (gethash :window-configuration closed-project-state nil)
+                 (puthash :window-configuration nil closed-project-state))))))
 
 (defun proj-swap-to ()
   (interactive)
@@ -358,14 +361,18 @@
 
 ;; set up properties
 (proj-add-property-handler :window-configuration (proj--gen-handler
-												  :set-emacs-state
-												  (set-window-configuration value)
-												  (other-window 1)
-												  :get-emacs-state
-												  (current-window-configuration)
-												  :set-default-emacs-state
-												  (dired proj-current)
-												  (delete-other-windows)))
+                                                  :set-emacs-state
+                                                  (if value
+                                                      (progn
+                                                        (set-window-configuration value)
+                                                        (other-window 1))
+                                                    (dired proj-current)
+                                                    (delete-other-windows))
+                                                  :get-emacs-state
+                                                  (current-window-configuration)
+                                                  :set-default-emacs-state
+                                                  (dired proj-current)
+                                                  (delete-other-windows)))
 (proj-add-property-handler :compile-command (proj--var-handler-emacs-default compile-command))
 (proj-add-property-handler :compilation-directory (proj--var-handler-default compilation-directory proj-current))
 
