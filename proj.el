@@ -362,7 +362,10 @@
 ;; set up properties
 (proj-add-property-handler :window-configuration (proj--gen-handler
                                                   :set-emacs-state
-                                                  (if value
+                                                  (if (and
+                                                       value
+                                                       (eq (window-configuration-frame value)
+                                                           (selected-frame)))
                                                       (progn
                                                         (set-window-configuration value)
                                                         (other-window 1))
