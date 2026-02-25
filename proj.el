@@ -41,9 +41,6 @@
 
 (defmacro proj--current-state () `(gethash (proj--str-to-key proj-current) proj-state nil))
 
-(defmacro proj--save-current-state-property (prop value) `(puthash ,prop ,value (proj--current-state)))
-(defmacro proj--get-current-state-property (prop) `(gethash ,prop (proj--current-state) nil))
-
 (defmacro proj--plist-map (func plist)
   `(cl-loop for (key value) on ,plist by 'cddr do
            (funcall ,func key value)))
