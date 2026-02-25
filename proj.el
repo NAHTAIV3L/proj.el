@@ -1,12 +1,11 @@
 (require 'cl-lib)
 
 ;; Configurable Variables
-(defvar proj-locations
-  '("~/dev" "~/latex" "~/rpi")
+(defvar proj-locations '()
   "Value for where to look for projects")
 
 (defvar proj-find-params
-  '("-mindepth 2" "-maxdepth 2" "-path '*/.git'" "-prune -o" "-type d" "-print")
+  '("-path '*/.git'" "-prune -o" "-type d" "-print")
   "parameters to run find with")
 
 (defvar proj-grep-function #'grep
@@ -23,7 +22,16 @@
   "project state per project")
 
 (defvar proj-property-handlers '()
-  "handlers")
+  "handlers for setting and getting per project state")
+
+(defvar proj-history-list '()
+  "history list for proj-swap-to")
+
+(defvar proj-before-change-hook '()
+  "hook to run before changing project state")
+
+(defvar proj-after-change-hook '()
+  "hook to run after changing project state")
 
 ;; Utils
 (defmacro proj--clean-path (path) `(string-replace (getenv "HOME") "~" ,path))
@@ -76,36 +84,6 @@
                           "\n" t))
                        proj-locations))))))))
 
-(defun proj--save-state ()
-  "Saves state of current project"
-  ;; add current proj to hash table if not in it
-  (unless (gethash (proj--str-to-key proj-current) proj-state nil)
-    (puthash (proj--str-to-key proj-current) (make-hash-table :test 'eq) proj-state))
-
-  ;; saves state of current project to hash table
-  (proj--plist-map
-   (lambda (key value)
-     (let ((current-state (proj--current-state))
-           (val (funcall value :get-emacs-state nil)))
-       (puthash key val current-state)))
-   proj-property-handlers))
-
-(defun proj--restore-state ()
-  "Restores state of current project, or sets up the default"
-  (if (gethash (proj--str-to-key proj-current) proj-state nil)
-	  ;; restore emacs values
-      (proj--plist-map
-       (lambda (key value)
-		 (let* ((current-state (proj--current-state))
-				(val (gethash key current-state nil)))
-           (funcall value :set-emacs-state val)))
-       proj-property-handlers)
-	;; or restore default values
-	(proj--plist-map
-	 (lambda (key value)
-       (funcall value :set-default-emacs-state nil))
-	 proj-property-handlers)))
-
 ;; Property Helpers
 (defmacro proj-add-property-handler (property handler)
   `(setq proj-property-handlers (plist-put proj-property-handlers ,property ,handler)))
@@ -157,6 +135,36 @@
     :set-default-emacs-state
     (setq ,symbol ,default)))
 
+(defun proj--save-state ()
+  "Saves state of current project"
+  ;; add current proj to hash table if not in it
+  (unless (gethash (proj--str-to-key proj-current) proj-state nil)
+    (puthash (proj--str-to-key proj-current) (make-hash-table :test 'eq) proj-state))
+
+  ;; saves state of current project to hash table
+  (proj--plist-map
+   (lambda (key value)
+     (let ((current-state (proj--current-state))
+           (val (funcall value :get-emacs-state nil)))
+       (puthash key val current-state)))
+   proj-property-handlers))
+
+(defun proj--restore-state ()
+  "Restores state of current project, or sets up the default"
+  (if (gethash (proj--str-to-key proj-current) proj-state nil)
+	  ;; restore emacs values
+      (proj--plist-map
+       (lambda (key value)
+		 (let* ((current-state (proj--current-state))
+				(val (gethash key current-state nil)))
+           (funcall value :set-emacs-state val)))
+       proj-property-handlers)
+	;; or restore default values
+	(proj--plist-map
+	 (lambda (key value)
+       (funcall value :set-default-emacs-state nil))
+	 proj-property-handlers)))
+
 ;; User functions
 (defun proj-set (dir)
   "Sets current project to dir and updates state. The most important function"
@@ -165,6 +173,7 @@
   (if (or (equal dir proj-current) (file-equal-p dir proj-current))
 	  (message "Project is already open")
 
+    (run-hooks proj-before-change-hook)
 	;; save state of current project
 	(proj--save-state)
 
@@ -175,7 +184,21 @@
 
 	;; restore state of new project
 	(proj--restore-state)
-    ))
+    (run-hooks proj-after-change-hook)))
+
+(defun proj-swap-to ()
+  (interactive)
+  (let* ((completion-extra-properties '(:category file))
+         (history-delete-duplicates t)
+         (choice
+          (completing-read
+           (concat "Switch to project"
+                   (when proj-current
+                     (concat " (" (proj--clean-path proj-current) ")"))
+                   ": ")
+           (proj--get-paths)
+           nil t nil 'proj-history-list)))
+    (proj-set choice)))
 
 (defun proj-close ()
   (interactive)
@@ -210,19 +233,6 @@
     (let ((closed-project-state (gethash (proj--str-to-key choice) proj-state nil)))
       (when (and closed-project-state (gethash :window-configuration closed-project-state nil)
                  (puthash :window-configuration nil closed-project-state))))))
-
-(defun proj-swap-to ()
-  (interactive)
-  (let* ((completion-extra-properties '(:category file))
-         (choice
-          (completing-read
-           (concat "Switch to project"
-                   (when proj-current
-                     (concat " (" (proj--clean-path proj-current) ")"))
-                   ": ")
-           (proj--get-paths)
-           nil t nil nil proj-current)))
-    (proj-set choice)))
 
 (defun proj-find-file ()
   (interactive)
@@ -367,8 +377,7 @@
                                                        (eq (window-configuration-frame value)
                                                            (selected-frame)))
                                                       (progn
-                                                        (set-window-configuration value)
-                                                        (other-window 1))
+                                                        (set-window-configuration value))
                                                     (dired proj-current)
                                                     (delete-other-windows))
                                                   :get-emacs-state

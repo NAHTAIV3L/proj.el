@@ -5,7 +5,7 @@ make it more robust
 add features
 - [x] add proj-close which closes currently open project (and it's buffers)
 - [x] make it easy to make state "project-local"
-- [ ] proj-swap-to uses history
+- [x] proj-swap-to uses history
 - [ ] function to "create" new project in project directory
 - [ ] save project state to file
 
