@@ -235,19 +235,23 @@
   (interactive)
   (if (proj--is-inactive)
       (call-interactively 'find-file)
-    (let ((completion-extra-properties '(:category file))
-          (default-directory proj-current))
+    (let* ((completion-extra-properties '(:category file))
+           (default-directory proj-current)
+		   ;; uses git ls to find files if in git repo, and find if not
+           (is-git (file-exists-p (expand-file-name ".git" proj-current)))
+           (cmd (if is-git
+                    "git ls-files --cached --others --exclude-standard"
+                  (concat "find " proj-current " -path '*/.*' -prune -o -type f -print")))
+           (cmd-output (split-string (shell-command-to-string cmd) "\n" t))
+           ;; change files to absolute paths if git ls
+           (files (if is-git
+                      cmd-output
+                    (mapcar (lambda (str) (string-replace proj-current "" str)) 
+                            cmd-output))))
       (find-file
        (completing-read
         (concat "Find file in " (proj--clean-path proj-current) ": ")
-        (mapcar (lambda (str) (string-replace proj-current "" str))
-                (split-string (shell-command-to-string
-                               (concat "find " proj-current (concat " -path '"
-                                                                    (substring proj-current 0
-                                                                               (1- (length proj-current)))
-                                                                    "*/.*' -prune -o")
-                                       " -path '*/.git' -prune -o -type f -print"))
-                              "\n" t)))))))
+        files)))))
 
 (defun proj-find-file-all ()
   (interactive)
