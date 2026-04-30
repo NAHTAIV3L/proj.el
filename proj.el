@@ -2,10 +2,9 @@
 
 ;; Configurable Variables
 (defvar proj-locations '()
-  "Value for where to look for projects")
+  "Value for where to look for projects comes in the form (dir . depth)")
 
-(defvar proj-find-params
-  '("-path '*/.git'" "-prune -o" "-type d" "-print")
+(defvar proj-find-params '()
   "parameters to run find with")
 
 (defvar proj-grep-function #'grep
@@ -68,18 +67,22 @@
                   str
                 (file-truename (concat str "/"))))
             (append (list proj-no-project-name)
-                    (append
-                     (delete proj-no-project-name
-                             (mapcar (lambda (key) (proj--key-to-str key))
-                                     (hash-table-keys proj-state)))
-                     (flatten-list
-                      (mapcar
-                       (lambda (p)
-                         (split-string
-                          (shell-command-to-string
-                           (concat "find " p " " (mapconcat (lambda (param) (concat param " ")) proj-find-params)))
-                          "\n" t))
-                       proj-locations))))))))
+                    (mapcar (lambda (key) (proj--key-to-str key))
+                            (hash-table-keys proj-state))
+                    (flatten-list
+                     (mapcar
+                      (lambda (p)
+                        (let ((dir   (car p))
+                              (depth (number-to-string (cdr p))))
+                          (split-string
+                           (shell-command-to-string
+                            (concat "find " dir " "
+                                    (mapconcat (lambda (param) (concat param " "))
+                                               (append (list "-mindepth " depth "-maxdepth " depth
+                                                             "-path '*/.git'" "-prune -o" "-type d" "-print")
+                                                       proj-find-params))))
+                           "\n" t)))
+                      proj-locations)))))))
 
 ;; Property Helpers
 (defmacro proj-add-property-handler (property handler)
@@ -246,7 +249,7 @@
            ;; change files to absolute paths if git ls
            (files (if is-git
                       cmd-output
-                    (mapcar (lambda (str) (string-replace proj-current "" str)) 
+                    (mapcar (lambda (str) (string-replace proj-current "" str))
                             cmd-output))))
       (find-file
        (completing-read
