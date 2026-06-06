@@ -1,4 +1,5 @@
 (require 'cl-lib)
+(require 'compile)
 
 ;; Configurable Variables
 (defvar proj-locations '()
