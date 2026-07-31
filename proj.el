@@ -46,6 +46,8 @@
            (funcall ,func key value)))
 
 (defun proj--get-buffer-path (buffer) (with-current-buffer buffer default-directory))
+;; todo(jqj): use this everywhere:
+(defun proj--file-in-proj (file-name) (file-in-directory-p (file-truename file-name) proj-current))
 
 (defun proj--is-inactive () (equal proj-current proj-no-project-name))
 
@@ -352,7 +354,14 @@
 (defun proj-async-shell-command ()
   (interactive)
   (let ((default-directory (if (proj--is-inactive) default-directory proj-current)))
-	(call-interactively 'async-shell-command)))
+    (call-interactively 'async-shell-command)))
+
+;; set save some buffer predicate (note: this could potentially conflict, maybe we can use advice?)
+(defun proj--save-some-buffers-p ()
+  (if (proj--is-inactive)
+      't
+    (when buffer-file-name (proj--file-in-proj buffer-file-name))))
+(setq save-some-buffers-default-predicate 'proj--save-some-buffers-p)
 
 ;; assign keybinds
 (defvar proj-prefix-map
