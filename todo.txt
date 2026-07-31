@@ -1,5 +1,6 @@
 make it more robust
 - [x] way to set no project (and functions should work without project open)
+- [ ] proj compile should compile at compilation-repo
 - [ ] frame local project
 
 add features

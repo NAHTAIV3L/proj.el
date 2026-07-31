@@ -241,8 +241,8 @@
       (call-interactively 'find-file)
     (let* ((completion-extra-properties '(:category file))
            (default-directory proj-current)
-		   ;; uses git ls to find files if in git repo, and find if not
-           (is-git (file-exists-p (expand-file-name ".git" proj-current)))
+	   ;; uses git ls to find files if in git repo, and find if not
+           (is-git (zerop (shell-command "git rev-parse --is-inside-work-tree")))
            (cmd (if is-git
                     "git ls-files --cached --others --exclude-standard"
                   (concat "find " proj-current " -path '*/.*' -prune -o -type f -print")))
